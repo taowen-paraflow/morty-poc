@@ -67,6 +67,11 @@ export class RunnerActions {
         }));
     }
 
+    /** The run that is queued or running, if any; the workflow allows only one at a time. */
+    async activeRun(): Promise<RunSummary | null> {
+        return (await this.runs()).find((run) => run.status !== "completed") ?? null;
+    }
+
     async cancel(runId: number, force = false): Promise<void> {
         await this.github.request("POST", `/actions/runs/${runId}/${force ? "force-cancel" : "cancel"}`);
     }

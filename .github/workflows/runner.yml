@@ -37,8 +37,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install Claude Code
-        run: npm install --global @anthropic-ai/claude-code
+      - name: Install Claude Code and the terminal emulator its sign-in is read with
+        run: |
+          npm install --global @anthropic-ai/claude-code
+          python3 -m pip install --user --break-system-packages pyte==0.8.2
       - name: Connect this runner to Morty
         env:
           REQUEST_ID: ${{ inputs.request_id }}

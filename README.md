@@ -41,7 +41,7 @@ launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
   (RSA-OAEP-SHA256 wrapping AES-256-GCM). The runner only accepts comments from the user who
   dispatched the run.
 - **Claude sign-in** runs the official `claude setup-token` on the runner in a pseudo-terminal
-  (`scripts/claude_login.py`). Its long-lived token is returned to the page, encrypted, and kept
+  (`scripts/claude_login.py`), reading its full-screen UI through the `pyte` terminal emulator. Its long-lived token is returned to the page, encrypted, and kept
   in IndexedDB under a non-extractable key, so later launches skip this step.
 - **Morty**: the runner starts a Claude Code session, runs `morty setup --harness claude`, and
   returns the continue link. Cleanup revokes the runner's Morty access and closes the issue.
@@ -66,7 +66,7 @@ Claude account from your sign-in.
 
 ## Tests
 
-`node test/selftest.mjs` checks that the page and runner halves of the encryption and message
+`node test/selftest.mjs` (needs `pip install pyte`) checks that the page and runner halves of the encryption and message
 format agree, and drives `scripts/claude_login.py` against a stand-in `claude setup-token`.
 
 ## License

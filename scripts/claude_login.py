@@ -18,10 +18,14 @@ import sys
 import termios
 import time
 
-ANSI = re.compile(rb"\x1b\[[0-9;?>]*[a-zA-Z]|\x1b\][^\x07]*\x07")
+# CSI, OSC, charset designations and other two-byte escapes; Ink styles and positions text with all of them.
+ANSI = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[()*+][0-9A-Za-z]|[=>@-Z\\^_])")
 URL = re.compile(r"https://claude\.(?:com|ai)/\S*oauth/authorize\S+")
-TOKEN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
-FAILURE = re.compile(r"(OAuth error[^\n]*|[Ii]nvalid[^\n]*code[^\n]*|[Ee]xpired[^\n]*)")
+TOKEN = re.compile(r"sk-ant-[a-z0-9]+-[A-Za-z0-9_-]{20,}")
+# Ink renders spaces as cursor moves and may wrap long lines, so the token is read from the screen text with all
+# whitespace removed, between the "valid for 1 year" label and the "Store this token" advice that follows it.
+TOKEN_BLOCK = re.compile(r"year\)?:(.*?)Storethistoken", re.S)
+FAILURE = re.compile(r"(OAuth ?error[^\n]*|[Ii]nvalid ?(?:code|grant)[^\n]*)")
 SECRETS = re.compile(r"sk-ant-[A-Za-z0-9_-]+|[A-Za-z0-9_-]{24,}#[A-Za-z0-9_-]{8,}|https://\S+")
 transcript = []
 
@@ -37,6 +41,15 @@ def safe_tail():
 def emit(value):
     sys.stdout.write(json.dumps(value) + "\n")
     sys.stdout.flush()
+
+
+def find_token(text):
+    compact = re.sub(r"\s+", "", text)
+    block = TOKEN_BLOCK.search(compact)
+    if block is None:
+        return None
+    match = TOKEN.search(block.group(1))
+    return match.group(0) if match else None
 
 
 def read_until(fd, pattern, seconds, stop=None):
@@ -55,9 +68,14 @@ def read_until(fd, pattern, seconds, stop=None):
         buffer += chunk
         transcript.append(chunk)
         text = ANSI.sub(b"", buffer).decode(errors="replace")
-        match = pattern.search(text)
-        if match:
-            return match.group(0)
+        if pattern is TOKEN:
+            token = find_token(text)
+            if token is not None:
+                return token
+        else:
+            match = pattern.search(text)
+            if match:
+                return match.group(0)
         if stop is not None and stop.search(text):
             return None
     return None

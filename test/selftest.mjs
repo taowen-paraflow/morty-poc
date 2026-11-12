@@ -42,8 +42,16 @@ print("https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=" + "s
 sys.stdout.write("Paste code here if prompted > "); sys.stdout.flush()
 code = sys.stdin.readline().strip()
 time.sleep(0.2)
-print("Your OAuth token (valid for 1 year):") if code == "good-code#state1" else print("OAuth error")
-print("sk-ant-oat01-" + "A" * 40) if code == "good-code#state1" else None
+ok = code == "good-code#state1"
+if ok:
+    # Like Ink: spaces as cursor moves, a styled token wrapped across lines, charset escapes.
+    sys.stdout.write("\\x1b[32m\\u2713\\x1b[39m\\x1b(BLong-lived\\x1b[1Cauthentication\\x1b[1Ctoken\\x1b[1Ccreated!\\r\\n")
+    sys.stdout.write("Your\\x1b[1COAuth\\x1b[1Ctoken\\x1b[1C(valid\\x1b[1Cfor\\x1b[1C1\\x1b[1Cyear):\\r\\n\\r\\n")
+    sys.stdout.write("\\x1b[1m\\x1b[33msk-ant-oat01-" + "A" * 30 + "\\r\\n" + "B" * 20 + "\\x1b[39m\\x1b[22m\\x1b(B\\r\\n\\r\\n")
+    sys.stdout.write("Store\\x1b[1Cthis\\x1b[1Ctoken\\x1b[1Csecurely.\\r\\n")
+else:
+    print("OAuth error: invalid_grant")
+sys.stdout.flush()
 time.sleep(0.5)
 `,
     { mode: 0o755 },
@@ -57,6 +65,6 @@ const first = JSON.parse((await lines.next()).value);
 assert.match(first.url, /^https:\/\/claude\.com\/cai\/oauth\/authorize\?.*s{300}$/u);
 child.stdin.write(`${JSON.stringify({ code: "good-code#state1" })}\n`);
 const second = JSON.parse((await lines.next()).value);
-assert.equal(second.token, `sk-ant-oat01-${"A".repeat(40)}`);
+assert.equal(second.token, `sk-ant-oat01-${"A".repeat(30)}${"B".repeat(20)}`);
 console.log("claude sign-in driver: ok");
 process.exit(0);

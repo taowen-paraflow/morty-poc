@@ -144,7 +144,14 @@ export class RunChannel {
     async findIssue() {
         if (this.issue !== null) return this.issue;
         const issues = await this.github.request("GET", "/issues?state=all&sort=created&direction=desc&per_page=30");
-        this.issue = issues.find((item) => item.title === `morty-run ${this.requestId}` && item.pull_request === undefined) ?? null;
+        // Only the issue the runner opened counts; anyone can open an issue with the same title.
+        this.issue =
+            issues.find(
+                (item) =>
+                    item.title === `morty-run ${this.requestId}` &&
+                    item.pull_request === undefined &&
+                    item.user?.login === "github-actions[bot]",
+            ) ?? null;
         return this.issue;
     }
 

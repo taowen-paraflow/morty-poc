@@ -21,6 +21,17 @@ import time
 ANSI = re.compile(rb"\x1b\[[0-9;?>]*[a-zA-Z]|\x1b\][^\x07]*\x07")
 URL = re.compile(r"https://claude\.(?:com|ai)/\S*oauth/authorize\S+")
 TOKEN = re.compile(r"sk-ant-oat01-[A-Za-z0-9_-]{20,}")
+FAILURE = re.compile(r"(OAuth error[^\n]*|[Ii]nvalid[^\n]*code[^\n]*|[Ee]xpired[^\n]*)")
+SECRETS = re.compile(r"sk-ant-[A-Za-z0-9_-]+|[A-Za-z0-9_-]{24,}#[A-Za-z0-9_-]{8,}|https://\S+")
+transcript = []
+
+
+def safe_tail():
+    """The last screen text with secrets and links removed, for diagnosing a failed sign-in."""
+    text = ANSI.sub(b"", b"".join(transcript)).decode(errors="replace")
+    text = SECRETS.sub("<redacted>", text)
+    lines = [line.strip() for line in text.replace("\r", "\n").split("\n") if line.strip()]
+    return " | ".join(lines[-6:])[-400:]
 
 
 def emit(value):
@@ -28,7 +39,7 @@ def emit(value):
     sys.stdout.flush()
 
 
-def read_until(fd, pattern, seconds):
+def read_until(fd, pattern, seconds, stop=None):
     buffer = b""
     deadline = time.time() + seconds
     while time.time() < deadline:
@@ -42,9 +53,13 @@ def read_until(fd, pattern, seconds):
         if not chunk:
             break
         buffer += chunk
-        match = pattern.search(ANSI.sub(b"", buffer).decode(errors="replace"))
+        transcript.append(chunk)
+        text = ANSI.sub(b"", buffer).decode(errors="replace")
+        match = pattern.search(text)
         if match:
             return match.group(0)
+        if stop is not None and stop.search(text):
+            return None
     return None
 
 
@@ -68,10 +83,13 @@ def main():
     if not re.fullmatch(r"[A-Za-z0-9_\-#.~]{10,2048}", code):
         emit({"error": "the sign-in code has an unexpected format"})
         return 1
-    os.write(fd, code.encode() + b"\r")
-    token = read_until(fd, TOKEN, 120)
+    # Type the code, then press Enter separately, as a terminal paste would.
+    os.write(fd, code.encode())
+    time.sleep(0.5)
+    os.write(fd, b"\r")
+    token = read_until(fd, TOKEN, 180, stop=FAILURE)
     if token is None:
-        emit({"error": "Claude did not issue a token; the code may be wrong or expired"})
+        emit({"error": f"Claude did not issue a token. Claude said: {safe_tail() or 'nothing'}"})
         return 1
     emit({"token": token})
     return 0

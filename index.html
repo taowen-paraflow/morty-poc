@@ -55,7 +55,7 @@ footer button { padding:4px 10px; font-size:13px; }
       <li class="step" data-step="claude"><span class="dot"></span><div><div class="title">Sign in to Claude</div><div class="detail"></div>
         <div class="action hidden" id="claude-action">
           <button id="claude-open" class="primary">Open Claude sign-in</button>
-          <input id="claude-code" placeholder="Paste the code Claude shows" autocomplete="off">
+          <input id="claude-code" placeholder="Paste the whole code Claude shows" autocomplete="off">
           <button id="claude-submit">Continue</button>
         </div></div></li>
       <li class="step" data-step="morty"><span class="dot"></span><div><div class="title">Connect to Morty</div><div class="detail"></div>
@@ -196,7 +196,11 @@ $("start").addEventListener("click", async () => {
 
 function claudeCode(url, runnerKey, channel) {
   $("claude-action").classList.remove("hidden");
-  $("claude-open").onclick = () => window.open(url, "_blank", "noopener");
+  const signIn = new URL(url);
+  if (signIn.protocol !== "https:" || !["claude.com", "claude.ai"].includes(signIn.hostname)) {
+    throw new Error("The runner returned an unexpected sign-in link.");
+  }
+  $("claude-open").onclick = () => window.open(signIn, "_blank", "noopener");
   return new Promise((resolve) => {
     $("claude-submit").onclick = async () => {
       const code = $("claude-code").value.trim();

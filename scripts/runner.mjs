@@ -1,8 +1,11 @@
 // Runs inside the GitHub Actions job. It talks to the launcher page through comments on a per-run issue:
 //   1. posts its public key,
 //   2. receives a saved Claude token, or drives `claude setup-token` with the page (sign-in link out, code in),
-//   3. starts a Claude Code session, connects this runner to Morty, and returns the encrypted continue link,
-//   4. stays up until the conversation is idle, the time limit passes, or the run is cancelled.
+//   3. receives the state key and restores the encrypted state from the last run (Claude history, Morty identity),
+//   4. continues the last Claude Code session (or starts one), connects to Morty as the same computer, and returns
+//      the encrypted continue link,
+//   5. stays up until the conversation is idle, the time limit passes, or the run is cancelled; the workflow then
+//      packs the state again for the cache.
 // Secrets are never printed. Only messages from the user who dispatched the run are accepted.
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -11,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { decryptWith, encryptFor, formatMessage, importPublicKey, parseMessage } from "./runner-crypto.mjs";
+import { metadataFile, unpack, writeKey } from "./state.mjs";
 
 const env = process.env;
 const requestId = env.REQUEST_ID ?? "";
@@ -190,6 +194,7 @@ function mortySetup(sessionId, token) {
         );
         let buffer = "";
         let ready = null;
+        let errorCode = null;
         const timer = setTimeout(() => child.kill("SIGTERM"), 300_000);
         child.stdout.on("data", (chunk) => {
             buffer += chunk;
@@ -200,6 +205,7 @@ function mortySetup(sessionId, token) {
                 try {
                     const event = JSON.parse(line);
                     if (event.status === "ready") ready = event;
+                    if (typeof event.error?.code === "string") errorCode = event.error.code;
                     console.log(`morty setup: ${event.status}${event.error?.code ? ` (${event.error.code})` : ""}`);
                 } catch {
                     // Not a setup event.
@@ -210,7 +216,7 @@ function mortySetup(sessionId, token) {
         child.on("close", (code) => {
             clearTimeout(timer);
             if (ready !== null) resolve(ready);
-            else reject(new Error(`morty setup exited with ${code} before ready`));
+            else reject(Object.assign(new Error(`morty setup exited with ${code} before ready${errorCode ? ` (${errorCode})` : ""}`), { code: errorCode }));
         });
     });
 }
@@ -229,11 +235,31 @@ function latestActivity() {
     return newest;
 }
 
+function readMetadata() {
+    try {
+        return JSON.parse(fs.readFileSync(metadataFile, "utf8"));
+    } catch {
+        return {};
+    }
+}
+
+function sessionExists(sessionId) {
+    const projects = path.join(os.homedir(), ".claude", "projects");
+    if (!/^[0-9a-f-]{36}$/u.test(sessionId) || !fs.existsSync(projects)) return false;
+    return fs.readdirSync(projects).some((directory) => fs.existsSync(path.join(projects, directory, `${sessionId}.jsonl`)));
+}
+
 // --- main -------------------------------------------------------------------------------------------------------
 
 try {
     await send("runner-key", { publicKey: own.publicKey.export({ type: "spki", format: "der" }).toString("base64") }, "Runner is up.");
     console.log(`Channel issue #${issue.number}; waiting for the page.`);
+    const { payload: statePayload } = await receive(["state-key"], 10);
+    writeKey(decrypt(statePayload).key);
+    const restored = unpack(Buffer.from(decrypt(statePayload).key, "base64"));
+    console.log(`Saved state: ${restored}.`);
+    await send("state", { restored }, restored === "restored" ? "Restored the last conversation." : "Starting fresh.");
+    const metadata = readMetadata();
     const first = await receive(["claude-token", "claude-login-request"], 10);
     let token = first.type === "claude-token" ? decrypt(first.payload).token : null;
     if (token !== null) {
@@ -252,11 +278,26 @@ try {
         // Saved as soon as Anthropic accepts it, so a later failure does not cost another sign-in.
         await send("claude-token", encrypt({ token }), "Save this Claude token in the launcher to skip sign-in next time.");
     }
-    const session = await startClaudeSession(token);
-    if (session.error) await fail(session.error);
-    const sessionId = session.sessionId;
-    console.log("Claude Code session ready; connecting to Morty.");
-    const ready = await mortySetup(sessionId, token);
+    // Continue the session Morty already knows, so the Recent list keeps one conversation instead of growing.
+    let sessionId = metadata.sessionId && sessionExists(metadata.sessionId) ? metadata.sessionId : null;
+    if (sessionId === null) {
+        const session = await startClaudeSession(token);
+        if (session.error) await fail(session.error);
+        sessionId = session.sessionId;
+    }
+    fs.writeFileSync(metadataFile, JSON.stringify({ ...metadata, sessionId }), { mode: 0o600 });
+    console.log(`Claude Code session ${metadata.sessionId === sessionId ? "continued" : "started"}; connecting to Morty.`);
+    let ready;
+    try {
+        ready = await mortySetup(sessionId, token);
+    } catch (error) {
+        if (error.code !== "PROJECT_REPLACEMENT_REQUIRED") throw error;
+        // The restored identity no longer opens its Morty computer: start a new one rather than replace silently.
+        const state = env.MORTY_STATE_DIRECTORY;
+        fs.renameSync(state, `${state}.replaced-${Date.now()}`);
+        await send("state", { restored: "identity-reset" }, "The saved Morty computer was gone; created a new one.");
+        ready = await mortySetup(sessionId, token);
+    }
     await send("morty", encrypt({ url: ready.url, accessExpiresAt: ready.accessExpiresAt }), "Morty is ready.");
     console.log(`Morty is ready. Idle limit ${idleMinutes} min, hard limit ${maxMinutes} min.`);
 } catch (error) {

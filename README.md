@@ -43,8 +43,13 @@ launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
 - **Claude sign-in** runs the official `claude setup-token` on the runner in a pseudo-terminal
   (`scripts/claude_login.py`), reading its full-screen UI through the `pyte` terminal emulator. Its long-lived token is returned to the page, encrypted, and kept
   in IndexedDB under a non-extractable key, so later launches skip this step.
-- **Morty**: the runner starts a Claude Code session, runs `morty setup --harness claude`, and
-  returns the continue link. Cleanup revokes the runner's Morty access and closes the issue.
+- **Morty**: the runner continues the last Claude Code session (or starts one), runs
+  `morty setup --harness claude`, and returns the continue link.
+- **Continuity**: Claude Code's history (`~/.claude`) and the Morty identity are saved to the
+  Actions cache when the runner ends (idle, time limit, failure, or **Stop runner**; not force
+  stop), so every run is the same Morty computer with the same Recent list. The cache only holds
+  an archive encrypted with a key that stays in the browser; the runner gets it per run,
+  encrypted. **Forget saved data** drops the key, which makes saved conversations unreadable.
 
 ## Deploy your own
 
@@ -62,7 +67,10 @@ Claude account from your sign-in.
 - Only users who can dispatch workflows in the repository can start runners.
 - Keep the token limited to this repository. Encrypted messages are public comments; without the right private key they reveal only the
   run id and message type.
-- Conversation history lives on the runner and is lost when it stops.
+- Conversation history is cached only in encrypted form; the Claude token is never cached. Caches
+  unused for 7 days are evicted by GitHub. Pull requests are disabled on this repository so fork
+  workflows cannot read caches; enable that on your fork too.
+- The Morty computer persists across runs. Revoke its access from morty.build if needed.
 
 ## Tests
 

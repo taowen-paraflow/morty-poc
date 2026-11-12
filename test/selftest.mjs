@@ -67,4 +67,33 @@ child.stdin.write(`${JSON.stringify({ code: "good-code#state1" })}\n`);
 const second = JSON.parse((await lines.next()).value);
 assert.equal(second.token, `sk-ant-oat01-${"A".repeat(30)}${"B".repeat(20)}`);
 console.log("claude sign-in driver: ok");
+
+// State archive: what one run packs, the next restores with the same key and cannot read with another.
+const home = fs.mkdtempSync(path.join(os.tmpdir(), "state-home-"));
+fs.mkdirSync(path.join(home, ".claude", "projects", "work"), { recursive: true });
+fs.writeFileSync(path.join(home, ".claude", "projects", "work", "s.jsonl"), "history\n");
+fs.writeFileSync(path.join(home, ".claude", ".credentials.json"), "secret");
+fs.mkdirSync(path.join(home, ".morty-state"));
+fs.writeFileSync(path.join(home, ".morty-state", "identity"), "morty");
+const stateEnv = { ...process.env, HOME: home, RUNNER_TEMP: home, MORTY_STATE_DIRECTORY: path.join(home, ".morty-state") };
+const runState = (code) =>
+    spawn(process.execPath, ["--input-type=module", "-e", code], { env: stateEnv, cwd: root, stdio: ["ignore", "pipe", "inherit"] });
+const output = async (child) => {
+    let text = "";
+    for await (const chunk of child.stdout) text += chunk;
+    return text.trim();
+};
+const stateModule = JSON.stringify(path.join(root, "scripts", "state.mjs"));
+const key = crypto.randomBytes(32).toString("base64");
+assert.equal(await output(runState(`import * as s from ${stateModule}; s.writeKey(${JSON.stringify(key)}); console.log(s.pack(s.readKey()));`)), "true");
+fs.rmSync(path.join(home, ".claude"), { recursive: true });
+fs.rmSync(path.join(home, ".morty-state"), { recursive: true });
+const other = crypto.randomBytes(32).toString("base64");
+assert.equal(await output(runState(`import * as s from ${stateModule}; console.log(s.unpack(Buffer.from(${JSON.stringify(other)}, "base64")));`)), "unreadable");
+assert.equal(await output(runState(`import * as s from ${stateModule}; console.log(s.unpack(s.readKey()));`)), "restored");
+assert.equal(fs.readFileSync(path.join(home, ".claude", "projects", "work", "s.jsonl"), "utf8"), "history\n");
+assert.equal(fs.readFileSync(path.join(home, ".morty-state", "identity"), "utf8"), "morty");
+assert.equal(fs.existsSync(path.join(home, ".claude", ".credentials.json")), false);
+assert.equal(fs.readFileSync(path.join(home, "morty-poc-cache", "state.enc")).includes("history"), false);
+console.log("state archive: ok");
 process.exit(0);

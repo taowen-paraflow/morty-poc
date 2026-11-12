@@ -67,7 +67,7 @@ footer button { padding:4px 10px; font-size:13px; }
     <span id="run-info"></span>
     <span>
       <button id="stop" class="danger hidden" title="Shift-click to force stop without cleanup">Stop runner</button>
-      <button id="forget">Forget saved sign-ins</button>
+      <button id="forget">Forget saved data</button>
     </span>
   </footer>
 </main>
@@ -144,7 +144,24 @@ $("start").addEventListener("click", async () => {
       step("runner", "active", `Waiting for the runner… ${Math.round((Date.now() - startedAt) / 1000)}s`);
       if (runnerKey === null) await sleep(4000);
     }
-    step("runner", "done", "Runner is up");
+    // The state key decrypts the conversation and Morty computer saved by earlier runs; it never leaves this browser
+    // unencrypted, so the cached state stays unreadable to anyone holding only the GitHub token.
+    let state = await vault.get("state");
+    if (!state?.key) {
+      state = { key: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))) };
+      await vault.set("state", state);
+    }
+    await channel.send("state-key", await encryptTo(runnerKey, { key: state.key }), "State key.");
+    let restored = null;
+    while (restored === null) {
+      for (const message of await channel.receive()) {
+        if (message.meta.type === "state") restored = message.payload.restored;
+        if (message.meta.type === "error") throw new Error(message.payload.message);
+      }
+      if (restored === null) await sleep(3000);
+    }
+    const stateNote = { restored: "continuing your last conversation", none: "first run, starting fresh", unreadable: "saved state unreadable, starting fresh" }[restored] ?? restored;
+    step("runner", "done", `Runner is up — ${stateNote}`);
 
     step("claude", "active", "Checking for a saved Claude sign-in…");
     const savedClaude = await vault.get("claude");
@@ -168,6 +185,9 @@ $("start").addEventListener("click", async () => {
         }
         if (type === "claude-token") {
           await vault.set("claude", await decryptWith(keys.privateKey, message.payload));
+        }
+        if (type === "state" && message.payload.restored === "identity-reset") {
+          step("morty", "active", "The saved Morty computer was gone; creating a new one…");
         }
         if (type === "morty") {
           morty = await decryptWith(keys.privateKey, message.payload);
@@ -224,7 +244,9 @@ $("stop").addEventListener("click", async (event) => {
 });
 
 $("forget").addEventListener("click", async () => {
+  if (!confirm("Forget the GitHub token, Claude sign-in and the key to saved conversations? Saved conversations become unreadable.")) return;
   await vault.set("github", null);
+  await vault.set("state", null);
   await vault.set("claude", null);
   $("forget").textContent = "Forgotten";
 });

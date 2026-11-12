@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morty Runner</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <h1>Morty runner</h1>
+  <p class="lead">Start Claude Code on a GitHub Actions runner and continue in Morty. The runner stops when idle, after about 6 hours, or when you stop it.</p>
+
+  <div class="card">
+    <button id="start" class="primary big">Start</button>
+    <ol id="steps" class="hidden">
+      <li class="step" data-step="github"><span class="dot"></span><div><div class="title">Connect GitHub</div><div class="detail"></div>
+        <div class="action hidden" id="github-action">
+          <a id="github-create" class="button primary" target="_blank" rel="noopener">Create token</a>
+          <input id="github-token" type="password" placeholder="Paste the github_pat_… token" autocomplete="off">
+          <button id="github-submit">Continue</button>
+        </div></div></li>
+      <li class="step" data-step="runner"><span class="dot"></span><div><div class="title">Start the runner</div><div class="detail"></div></div></li>
+      <li class="step" data-step="claude"><span class="dot"></span><div><div class="title">Sign in to Claude</div><div class="detail"></div>
+        <div class="action hidden" id="claude-action">
+          <button id="claude-open" class="primary">Open Claude sign-in</button>
+          <input id="claude-code" placeholder="Paste the whole code Claude shows" autocomplete="off">
+          <button id="claude-submit">Continue</button>
+        </div></div></li>
+      <li class="step" data-step="morty"><span class="dot"></span><div><div class="title">Connect to Morty</div><div class="detail"></div>
+        <div class="action hidden" id="morty-action"><a id="morty-open" class="button primary" target="_blank" rel="noopener">Open in Morty</a></div></div></li>
+    </ol>
+  </div>
+
+  <footer>
+    <span id="run-info"></span>
+    <span>
+      <button id="stop" class="danger hidden" title="Shift-click to force stop without cleanup">Stop runner</button>
+      <button id="forget">Forget saved data</button>
+    </span>
+  </footer>
+</main>
+<script type="module" src="main.js"></script>
+</body>
+</html>

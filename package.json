@@ -1,0 +1,20 @@
+{
+  "name": "morty-poc",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "build": "esbuild src/launcher/main.ts --bundle --format=esm --target=es2022 --minify --outfile=_site/main.js && cp src/launcher/index.html src/launcher/styles.css _site/ && touch _site/.nojekyll"
+  },
+  "dependencies": {
+    "@xterm/headless": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^7.0.0"
+  }
+}

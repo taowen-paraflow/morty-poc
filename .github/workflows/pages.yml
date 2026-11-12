@@ -25,14 +25,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Self-test
-        run: |
-          python3 -m pip install --user --break-system-packages pyte==0.8.2
-          node test/selftest.mjs
-      - name: Assemble the site
-        run: |
-          mkdir -p _site
-          cp index.html app.js config.js .nojekyll _site/
+          cache: npm
+      - run: npm ci
+      - name: Type-check and test
+        run: npm run check
+      - name: Build the site
+        run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

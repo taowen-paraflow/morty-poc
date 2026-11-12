@@ -41,7 +41,7 @@ launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
   (RSA-OAEP-SHA256 wrapping AES-256-GCM). The runner only accepts comments from the user who
   dispatched the run.
 - **Claude sign-in** runs the official `claude setup-token` on the runner in a pseudo-terminal
-  (`scripts/claude_login.py`), reading its full-screen UI through the `pyte` terminal emulator. Its long-lived token is returned to the page, encrypted, and kept
+  (`src/runner/claude/login.ts`), reading its full-screen UI through the `xterm.js` headless terminal emulator. Its long-lived token is returned to the page, encrypted, and kept
   in IndexedDB under a non-extractable key, so later launches skip this step.
 - **Morty**: the runner continues the last Claude Code session (or starts one), runs
   `morty setup --harness claude`, and returns the continue link.
@@ -54,8 +54,8 @@ launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
 ## Deploy your own
 
 1. Fork this repository, enable Issues, and set *Settings → Pages → Source* to **GitHub Actions**.
-   `pages.yml` runs the self-test and deploys the page on every push to `main`.
-2. Set `repository` in `config.js` to your fork.
+   `pages.yml` type-checks, tests and deploys the page on every push to `main`.
+2. Set `repository` in `src/launcher/config.ts` to your fork.
 
 No server and no repository secrets are needed: GitHub access comes from your token and the
 Claude account from your sign-in.
@@ -72,10 +72,37 @@ Claude account from your sign-in.
   workflows cannot read caches; enable that on your fork too.
 - The Morty computer persists across runs. Revoke its access from morty.build if needed.
 
-## Tests
+## Code layout
 
-`node test/selftest.mjs` (needs `pip install pyte`) checks that the page and runner halves of the encryption and message
-format agree, and drives `scripts/claude_login.py` against a stand-in `claude setup-token`.
+TypeScript throughout. The runner executes the `.ts` files directly (Node 24 strips the types); the launcher page
+is bundled by esbuild.
+
+```
+src/shared/     used by both sides
+  crypto.ts       RSA-OAEP + AES-GCM hybrid encryption (WebCrypto, same code in browser and Node)
+  protocol.ts     the message types and their comment format
+  channel.ts      one side of the conversation on a run's issue (poll, wait for a message, send)
+  github.ts       minimal GitHub REST client
+src/launcher/   the page (browser)
+  main.ts         wires the buttons    flow.ts   the launch sequence    ui.ts   all DOM access
+  runner-actions.ts  dispatch/stop runs, find the issue    vault.ts   encrypted IndexedDB storage
+  config.ts       the repository to dispatch (edit this for a fork)
+src/runner/     runs inside the Actions job
+  main.ts         start-up and the stay-alive loop    connect.ts   the launch sequence, runner side
+  claude/         login.ts (setup-token driver), token.ts (token check), session.ts (sessions, activity)
+  terminal.ts     a program in a pseudo-terminal read through xterm.js
+  morty.ts        `morty setup`    state.ts / pack-state.ts   the encrypted state archive
+  idle.ts         when to stop
+test/           node:test suites; fixtures/fake-claude.cjs stands in for `claude setup-token`
+```
+
+## Development
+
+```
+npm ci
+npm run check    # type-check and run the tests (needs util-linux `script`, present on Linux runners)
+npm run build    # bundle the page into _site/
+```
 
 ## License
 

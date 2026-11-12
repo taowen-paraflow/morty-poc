@@ -1,0 +1,30 @@
+:root { --bg:#f7f7f5; --panel:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e2e1dc; --accent:#2f6fed; --danger:#c2410c; --ok:#15803d; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --panel:#1f1f1d; --text:#ecebe6; --muted:#a3a29b; --line:#33332f; --accent:#6c9bff; --danger:#fb923c; --ok:#4ade80; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:560px; margin:0 auto; padding:48px 16px 64px; }
+h1 { font-size:24px; margin:0 0 6px; }
+p.lead { color:var(--muted); margin:0 0 28px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px; }
+button, a.button { border:1px solid var(--line); background:transparent; color:inherit; padding:9px 16px; border-radius:9px; font:inherit; cursor:pointer; text-decoration:none; display:inline-block; }
+.primary { background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; }
+.big { width:100%; padding:13px; font-size:16px; font-weight:600; }
+.danger { color:var(--danger); border-color:var(--danger); }
+button:disabled { opacity:.5; cursor:default; }
+ol { list-style:none; padding:0; margin:0; }
+li.step { display:grid; grid-template-columns:22px 1fr; gap:10px; padding:12px 0; border-top:1px solid var(--line); }
+li.step:first-child { border-top:0; }
+.dot { width:14px; height:14px; border-radius:50%; border:2px solid var(--line); margin-top:4px; }
+.step.active .dot { border-color:var(--accent); border-top-color:transparent; animation:spin 1s linear infinite; }
+.step.waiting .dot { border-color:var(--accent); background:var(--accent); }
+.step.done .dot { border-color:var(--ok); background:var(--ok); }
+.step.failed .dot { border-color:var(--danger); background:var(--danger); }
+@keyframes spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .step.active .dot { animation:none; } }
+.title { font-weight:600; }
+.detail { color:var(--muted); font-size:13px; margin-top:2px; }
+.action { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+.action input { flex:1 1 220px; min-width:0; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:transparent; color:inherit; font:inherit; }
+footer { margin-top:18px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
+footer button { padding:4px 10px; font-size:13px; }
+.hidden { display:none !important; }

@@ -37,6 +37,9 @@ jobs:
     env:
       # One fixed Morty state root, so the identity can be cached and every run is the same Morty computer.
       MORTY_STATE_DIRECTORY: /home/runner/.morty-state
+      # The Morty CLI used for setup and stop. Pin a version here (e.g. @morty-build/cli@0.4.250) to stop upstream
+      # releases from changing behaviour between runs.
+      MORTY_CLI: "@morty-build/cli@latest"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,12 +50,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-claude-morty-v1
-      - name: Install Claude Code and the terminal emulator its sign-in is read with
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Claude Code, the runner's dependencies and the Morty CLI
         run: |
           npm install --global @anthropic-ai/claude-code
-          python3 -m pip install --user --break-system-packages pyte==0.8.2
-          npx --yes @morty-build/cli@latest version || true
+          npm ci --omit=dev
+          npx --yes "$MORTY_CLI" version || true
       # The newest encrypted state from earlier runs. Only the launcher page holds its key.
       - name: Restore encrypted state
         uses: actions/cache/restore@v4
@@ -67,14 +70,14 @@ jobs:
           IDLE_MINUTES: ${{ inputs.idle_minutes }}
           MAX_MINUTES: "340"
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/runner.mjs
+        run: node src/runner/main.ts
       # The steps below run after idle exit, failure, or a graceful cancel from the launcher page; force-cancel skips them.
       - name: Stop Morty and pack encrypted state
         id: pack
         if: always()
         run: |
-          npx --yes @morty-build/cli@latest stop || true
-          node scripts/state.mjs pack
+          npx --yes "$MORTY_CLI" stop || true
+          node src/runner/pack-state.ts
       - name: Save encrypted state
         if: always() && steps.pack.outputs.packed == 'true'
         uses: actions/cache/save@v4

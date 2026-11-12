@@ -9,7 +9,7 @@ on:
         required: true
         type: string
       public_key:
-        description: "Base64 SPKI RSA public key the continue link is encrypted to"
+        description: "Base64 SPKI RSA public key of the launcher page"
         required: true
         type: string
       idle_minutes:
@@ -37,20 +37,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-      - name: Install Pi
-        run: npm install --global @earendil-works/pi-coding-agent@1.5.2
+      - name: Install Claude Code
+        run: npm install --global @anthropic-ai/claude-code
       - name: Connect this runner to Morty
         env:
           REQUEST_ID: ${{ inputs.request_id }}
           PUBLIC_KEY: ${{ inputs.public_key }}
           IDLE_MINUTES: ${{ inputs.idle_minutes }}
           MAX_MINUTES: "340"
-          PI_MODELS_JSON: ${{ secrets.PI_MODELS_JSON }}
-          PI_AUTH_JSON: ${{ secrets.PI_AUTH_JSON }}
-          PI_SETTINGS_JSON: ${{ secrets.PI_SETTINGS_JSON }}
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/runner.mjs
-      - name: Revoke Morty access
+      - name: Clean up
         # Runs after idle exit, failure, or a graceful cancel from the launcher page; force-cancel skips it.
         if: always()
-        run: npx --yes @morty-build/cli@latest revoke-all-access || echo "No Morty identity to revoke."
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npx --yes @morty-build/cli@latest revoke-all-access || echo "No Morty identity to revoke."
+          if [ -f /tmp/morty-poc-issue ]; then
+            gh issue close "$(cat /tmp/morty-poc-issue)" --repo "$GITHUB_REPOSITORY" --comment "Run ended." || true
+          fi

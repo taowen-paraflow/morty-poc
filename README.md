@@ -1,57 +1,72 @@
 # morty-poc
 
-A proof of concept: a static GitHub Pages launcher starts a GitHub Actions runner that runs the
-[Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent), connects it to
-[Morty](https://morty.build), and opens the conversation in morty.build in a new tab.
+One button starts [Claude Code](https://docs.claude.com/en/docs/claude-code) on a GitHub Actions
+runner, connects it to [Morty](https://morty.build), and gives you a link that opens the
+conversation in morty.build.
 
-The launcher is only a front door. Chat happens in Morty's own web app; the runner is the "computer"
-Morty relays to. Runners have no inbound network, which is fine: the Morty daemon only dials out.
+The launcher page is only a front door. Chat happens in Morty's web app; the runner is the
+"computer" Morty relays to. Runners accept no inbound connections, which is fine: the Morty
+daemon only dials out.
+
+## What the user does
+
+1. Press **Start**.
+2. First time only: press **Create token**. GitHub opens a pre-filled fine-grained token form
+   (Actions and Issues: read and write, 90 days); choose *Only select repositories* → this
+   repository, generate it, and paste it back. It is kept encrypted in this browser.
+3. Sign in to Claude when asked, and paste the code Claude shows (first time only; the
+   resulting token is kept encrypted in this browser and reused).
+4. Press **Open in Morty**.
+
+The runner stops after 30 idle minutes, at 340 minutes (GitHub-hosted jobs end at 6 hours), or
+when you press **Stop runner** (shift-click to force stop).
 
 ## How it works
 
-1. **Launch.** The page generates an RSA key pair in the browser and dispatches `runner.yml` with
-   your fine-grained token, passing the public key and a request id.
-2. **Runner.** The job installs Pi, writes its model configuration from repository secrets, starts a
-   Pi session, and runs `morty setup`, which pairs the runner with Morty and returns a continue link.
-3. **Handoff.** The link is a credential, so it is never logged. The runner encrypts it to the
-   page's public key and posts the ciphertext as a comment on the `morty-poc handoffs` issue.
-4. **Continue.** The page decrypts the link and opens `https://morty.build/continue…` in a new tab.
-   Morty keeps that browser signed in for a day.
-5. **Stop.** The job exits after the idle limit (default 30 minutes without Pi activity), at
-   340 minutes (GitHub-hosted jobs end at 6 hours), or when you press **Stop** on the page, which
-   cancels the run so its cleanup step revokes the runner's Morty access. **Force stop** ends a run
-   that ignores cancel and skips that cleanup.
-
-Only one runner runs at a time; another launch waits in the queue.
-
-## Set up your own copy
-
-1. Fork or copy this repository and enable GitHub Pages (Deploy from branch, `main`, `/`).
-2. Add repository secrets with your Pi configuration (the contents of `~/.pi/agent/*.json`):
-   `PI_MODELS_JSON`, `PI_AUTH_JSON`, `PI_SETTINGS_JSON`. The model endpoint must be reachable
-   from GitHub-hosted runners.
-3. Create a fine-grained token for this repository only, with **Actions: read and write** and
-   **Issues: read**. Paste it into the page; "Remember" stores it in this browser's local storage.
-
-To check the flow without a browser:
-
-```sh
-GITHUB_TOKEN=<token> node scripts/e2e.mjs <owner>/morty-poc
+```
+launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
+      ▲  │                                  │ claude setup-token / claude -p / morty setup
+      │  └──── comments on issue "morty-run <id>" (secrets encrypted) ───┘
+      │
+      └── "Open in Morty" ──▶ https://morty.build/continue#code=…  ◀── Morty daemon on the runner
 ```
 
-It launches a runner, redeems the link through the
-[Morty agent API](https://morty.build/agent-api.md), runs one Pi turn, stops the run, and confirms
-the cleanup revoked access.
+- **GitHub access** is a fine-grained token limited to this repository, created from GitHub's
+  [template URL](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
+  so only the repository has to be chosen. The page calls the GitHub REST API directly; no
+  server is involved.
+- **Messages** between page and runner are comments on a per-run issue. The page sends its RSA
+  public key with the dispatch; the runner posts its own public key first. Every secret (Claude
+  sign-in link and code, Claude token, Morty continue link) is encrypted to the receiver
+  (RSA-OAEP-SHA256 wrapping AES-256-GCM). The runner only accepts comments from the user who
+  dispatched the run.
+- **Claude sign-in** runs the official `claude setup-token` on the runner in a pseudo-terminal
+  (`scripts/claude_login.py`). Its long-lived token is returned to the page, encrypted, and kept
+  in IndexedDB under a non-extractable key, so later launches skip this step.
+- **Morty**: the runner starts a Claude Code session, runs `morty setup --harness claude`, and
+  returns the continue link. Cleanup revokes the runner's Morty access and closes the issue.
+
+## Deploy your own
+
+1. Fork this repository and enable GitHub Pages (Deploy from branch, `main`, `/`) and Issues.
+2. Set `repository` in `config.js` to your fork.
+
+No server and no repository secrets are needed: GitHub access comes from your token and the
+Claude account from your sign-in.
 
 ## Security notes
 
-- Whoever opens a continue link controls the runner's Pi session, which can run commands on the
-  runner with the job's `GITHUB_TOKEN` (contents read, issues write) and your model key.
-- Only users with write access can dispatch the workflow.
-- Encrypted handoffs are public comments; without the page's private key they reveal nothing but
-  the request id and run number.
-- Conversation history lives on the runner and is lost when it stops. Persisting it (for example
-  with the Actions cache) is not part of this proof of concept.
+- Whoever opens a continue link controls the runner's Claude Code session, which can run
+  commands on the runner with the job's `GITHUB_TOKEN` (contents read, issues write).
+- Only users who can dispatch workflows in the repository can start runners.
+- Keep the token limited to this repository. Encrypted messages are public comments; without the right private key they reveal only the
+  run id and message type.
+- Conversation history lives on the runner and is lost when it stops.
+
+## Tests
+
+`node test/selftest.mjs` checks that the page and runner halves of the encryption and message
+format agree, and drives `scripts/claude_login.py` against a stand-in `claude setup-token`.
 
 ## License
 

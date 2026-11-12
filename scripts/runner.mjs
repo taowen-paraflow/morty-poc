@@ -121,10 +121,49 @@ async function signInToClaude() {
     return second.token;
 }
 
-/** A first prompt proves the token works and creates the session Morty continues. */
+const redact = (text) => String(text).replace(/sk-ant-[A-Za-z0-9_-]+/gu, "<token>").replace(/#code=\S+/gu, "<code>");
+
+/**
+ * Asks the API directly whether the token is accepted, so a bad token fails in seconds with Anthropic's reason
+ * instead of Claude Code retrying until a timeout. Only authentication and permission errors reject the token.
+ */
+async function checkClaudeToken(token) {
+    const shape = `${token.slice(0, 13)}… (${token.length} chars)`;
+    try {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+                authorization: `Bearer ${token}`,
+                "anthropic-version": "2023-06-01",
+                "anthropic-beta": "oauth-2025-04-20",
+                "content-type": "application/json",
+            },
+            body: JSON.stringify({
+                model: "claude-haiku-4-5",
+                max_tokens: 1,
+                system: "You are Claude Code, Anthropic's official CLI for Claude.",
+                messages: [{ role: "user", content: "hi" }],
+            }),
+            signal: AbortSignal.timeout(30_000),
+        });
+        const body = await response.json().catch(() => ({}));
+        const type = body?.error?.type;
+        if (type === "authentication_error" || type === "permission_error") {
+            return `Anthropic rejected the token ${shape}: ${redact(body.error.message)}`;
+        }
+        console.log(`Claude token ${shape} accepted (HTTP ${response.status}${type ? `, ${type}` : ""}).`);
+        return null;
+    } catch (error) {
+        console.log(`Could not pre-check the Claude token: ${redact(error.message ?? error)}`);
+        return null;
+    }
+}
+
+/** A first prompt proves Claude Code runs and creates the session Morty continues. */
 async function startClaudeSession(token) {
     const result = await run("claude", ["-p", "Reply with exactly: MORTY_POC_READY", "--output-format", "json"], {
         env: { ...env, CLAUDE_CODE_OAUTH_TOKEN: token },
+        timeout: 240_000,
     });
     let parsed = null;
     try {
@@ -132,10 +171,11 @@ async function startClaudeSession(token) {
     } catch {
         // Reported below.
     }
-    if (result.code !== 0 || typeof parsed?.session_id !== "string" || parsed.is_error) {
-        return null;
+    if (result.code === 0 && typeof parsed?.session_id === "string" && !parsed.is_error) {
+        return { sessionId: parsed.session_id };
     }
-    return parsed.session_id;
+    const said = parsed?.result ?? (result.stderr.trim() || result.stdout.trim()).slice(-300);
+    return { error: `Claude Code exited with ${result.code ?? "a timeout"}: ${redact(said || "no output")}` };
 }
 
 // --- Morty ------------------------------------------------------------------------------------------------------
@@ -195,19 +235,26 @@ try {
     await send("runner-key", { publicKey: own.publicKey.export({ type: "spki", format: "der" }).toString("base64") }, "Runner is up.");
     console.log(`Channel issue #${issue.number}; waiting for the page.`);
     const first = await receive(["claude-token", "claude-login-request"], 10);
-    const savedToken = first.type === "claude-token" ? decrypt(first.payload).token : null;
-    let token = savedToken ?? (await signInToClaude());
-    let sessionId = await startClaudeSession(token);
-    if (sessionId === null && savedToken !== null) {
-        await send("claude-token-rejected", {}, "The saved Claude token no longer works; sign in again.");
-        await receive(["claude-login-request"], 10);
-        token = await signInToClaude();
-        sessionId = await startClaudeSession(token);
+    let token = first.type === "claude-token" ? decrypt(first.payload).token : null;
+    if (token !== null) {
+        const rejected = await checkClaudeToken(token);
+        if (rejected !== null) {
+            console.log(rejected);
+            await send("claude-token-rejected", {}, "The saved Claude token no longer works; sign in again.");
+            await receive(["claude-login-request"], 10);
+            token = null;
+        }
     }
-    if (sessionId === null) await fail("Claude Code could not run with this account.");
-    if (token !== savedToken) {
+    if (token === null) {
+        token = await signInToClaude();
+        const rejected = await checkClaudeToken(token);
+        if (rejected !== null) await fail(rejected);
+        // Saved as soon as Anthropic accepts it, so a later failure does not cost another sign-in.
         await send("claude-token", encrypt({ token }), "Save this Claude token in the launcher to skip sign-in next time.");
     }
+    const session = await startClaudeSession(token);
+    if (session.error) await fail(session.error);
+    const sessionId = session.sessionId;
     console.log("Claude Code session ready; connecting to Morty.");
     const ready = await mortySetup(sessionId, token);
     await send("morty", encrypt({ url: ready.url, accessExpiresAt: ready.accessExpiresAt }), "Morty is ready.");

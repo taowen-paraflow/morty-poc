@@ -48,7 +48,8 @@ launcher page ──workflow_dispatch──▶ runner.yml (GitHub Actions)
 
 ## Deploy your own
 
-1. Fork this repository and enable GitHub Pages (Deploy from branch, `main`, `/`) and Issues.
+1. Fork this repository, enable Issues, and set *Settings → Pages → Source* to **GitHub Actions**.
+   `pages.yml` runs the self-test and deploys the page on every push to `main`.
 2. Set `repository` in `config.js` to your fork.
 
 No server and no repository secrets are needed: GitHub access comes from your token and the

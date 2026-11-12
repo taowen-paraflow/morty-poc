@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morty Runner Launcher</title>
+<style>
+:root { --bg:#f7f7f5; --panel:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e2e1dc; --accent:#2f6fed; --danger:#c2410c; --ok:#15803d; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161615; --panel:#1f1f1d; --text:#ecebe6; --muted:#a3a29b; --line:#33332f; --accent:#6c9bff; --danger:#fb923c; --ok:#4ade80; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+main { max-width:760px; margin:0 auto; padding:32px 16px 64px; }
+h1 { font-size:22px; margin:0 0 4px; }
+p.lead { color:var(--muted); margin:0 0 24px; }
+section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; margin-bottom:16px; }
+h2 { font-size:15px; margin:0 0 12px; }
+label { display:block; font-size:13px; color:var(--muted); margin:12px 0 4px; }
+input { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; font:inherit; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:16px; }
+button, a.button { border:1px solid var(--line); background:transparent; color:inherit; padding:8px 14px; border-radius:8px; font:inherit; cursor:pointer; text-decoration:none; }
+button.primary, a.button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+button.danger { color:var(--danger); border-color:var(--danger); }
+button:disabled { opacity:.5; cursor:default; }
+.check { display:flex; gap:8px; align-items:center; margin-top:10px; font-size:13px; color:var(--muted); }
+.check input { width:auto; }
+#log { font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); white-space:pre-wrap; margin:12px 0 0; min-height:1.6em; }
+table { width:100%; border-collapse:collapse; font-size:13px; }
+td, th { text-align:left; padding:8px 6px; border-top:1px solid var(--line); vertical-align:middle; }
+th { color:var(--muted); font-weight:500; border-top:0; }
+.status-in_progress { color:var(--ok); }
+.small { font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Morty runner launcher</h1>
+  <p class="lead">Start a GitHub Actions runner with Pi, connect it to Morty, and continue in morty.build. Runs stop after the idle limit, at about 6 hours, or when you stop them here.</p>
+
+  <section>
+    <h2>GitHub access</h2>
+    <label for="repo">Repository</label>
+    <input id="repo" placeholder="owner/name" autocomplete="off">
+    <label for="token">Fine-grained token (this repository only: Actions read/write, Issues read)</label>
+    <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+    <div class="check"><input id="remember" type="checkbox"><label for="remember" style="margin:0">Remember on this device</label></div>
+  </section>
+
+  <section>
+    <h2>Launch</h2>
+    <label for="idle">Stop after idle minutes</label>
+    <input id="idle" type="number" min="5" max="300" value="30">
+    <div class="row">
+      <button id="start" class="primary">Start runner</button>
+      <a id="open" class="button primary" target="_blank" rel="noopener" hidden>Open in Morty</a>
+    </div>
+    <div id="log" role="status"></div>
+  </section>
+
+  <section>
+    <div class="row" style="margin:0 0 8px; justify-content:space-between">
+      <h2 style="margin:0">Runners</h2>
+      <button id="refresh">Refresh</button>
+    </div>
+    <table><thead><tr><th>Run</th><th>Status</th><th>Started</th><th></th></tr></thead><tbody id="runs"></tbody></table>
+    <p class="small">Stop lets the runner revoke its Morty access before it exits. Force stop ends it at once and skips that cleanup.</p>
+  </section>
+</main>
+<script type="module">
+import { GitHub, launch } from "./app.js";
+
+const $ = (id) => document.getElementById(id);
+const store = { get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+                set(key, value) { try { value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch {} } };
+
+const pagesRepo = location.hostname.endsWith(".github.io") ? `${location.hostname.split(".")[0]}/${location.pathname.split("/")[1] ?? ""}` : "";
+$("repo").value = store.get("morty-poc.repo") ?? pagesRepo;
+const savedToken = store.get("morty-poc.token");
+if (savedToken) { $("token").value = savedToken; $("remember").checked = true; }
+
+function client() {
+  const token = $("token").value.trim();
+  const repo = $("repo").value.trim();
+  if (!token || !repo) throw new Error("Enter the repository and a token first.");
+  store.set("morty-poc.repo", repo);
+  store.set("morty-poc.token", $("remember").checked ? token : null);
+  return new GitHub(token, repo);
+}
+
+const log = (text) => { $("log").textContent = text; };
+
+$("start").addEventListener("click", async () => {
+  $("start").disabled = true;
+  $("open").hidden = true;
+  // Open the tab inside the click so pop-up blockers allow it; it receives the link when the runner is ready.
+  const tab = window.open("about:blank", "_blank");
+  try {
+    const github = client();
+    const result = await launch(github, { idleMinutes: Number($("idle").value), report: log });
+    $("open").href = result.handoff.url;
+    $("open").hidden = false;
+    if (tab && !tab.closed) { tab.opener = null; tab.location.href = result.handoff.url; }
+    log(`Runner ready (${result.requestId}). The link opens Morty once, within about 10 minutes.`);
+    renderRuns();
+  } catch (error) {
+    if (tab && !tab.closed) tab.close();
+    log(String(error.message ?? error));
+  } finally {
+    $("start").disabled = false;
+  }
+});
+
+async function renderRuns() {
+  let github;
+  try { github = client(); } catch { return; }
+  try {
+    const runs = await github.runs();
+    $("runs").replaceChildren(...runs.slice(0, 10).map((run) => {
+      const row = document.createElement("tr");
+      const active = run.status !== "completed";
+      const started = run.startedAt ? new Date(run.startedAt) : null;
+      const minutes = started ? Math.round((Date.now() - started.getTime()) / 60000) : null;
+      row.innerHTML = `<td><a target="_blank" rel="noopener"></a></td><td class="status-${run.status}"></td><td></td><td></td>`;
+      row.cells[0].firstChild.href = run.url;
+      row.cells[0].firstChild.textContent = run.name.replace("morty-runner ", "");
+      row.cells[1].textContent = active ? run.status : run.conclusion;
+      row.cells[2].textContent = started ? `${started.toLocaleTimeString()}${active ? ` (${minutes} min)` : ""}` : "";
+      if (active) {
+        for (const [label, force] of [["Stop", false], ["Force stop", true]]) {
+          const button = document.createElement("button");
+          button.textContent = label;
+          if (force) button.className = "danger";
+          button.addEventListener("click", async () => {
+            button.disabled = true;
+            try { await github.cancel(run.id, force); log(`${label} requested for ${run.id}.`); }
+            catch (error) { log(String(error.message ?? error)); }
+            setTimeout(renderRuns, 3000);
+          });
+          row.cells[3].append(button, " ");
+        }
+      }
+      return row;
+    }));
+  } catch (error) { log(String(error.message ?? error)); }
+}
+
+$("refresh").addEventListener("click", renderRuns);
+renderRuns();
+setInterval(renderRuns, 30000);
+</script>
+</body>
+</html>
